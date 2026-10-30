@@ -698,6 +698,14 @@ export const InkCanvas = ({
 
     const onMove = (e: PointerEvent) => {
       if (e.pointerType === "pen" && !penSeen.current) notePen(); // hovering S Pen
+      // The barrel button pressed in the middle of a stroke drops what was drawn of it and
+      // erases from there on, as if the button had been held from the start.
+      const g = gesture.current;
+      if (e.pointerType === "pen" && g?.kind === "draw" && g.id === e.pointerId && isErasingPen(e)) {
+        cancelGesture();
+        startTool(e, true);
+        return;
+      }
       if (e.pointerType === "touch" && touches.current.has(e.pointerId)) {
         const { sx, sy } = local(e);
         touches.current.set(e.pointerId, { x: sx, y: sy });

@@ -139,10 +139,14 @@ export type Voice = VoiceState & {
 const derive = (current: VoiceState): Voice => {
   const live = current.loaded && current.enabled;
   const useGateway = live && current.speech;
+  // A server without a voice gateway reads aloud with the browser's own voice by default; with
+  // a gateway, the browser's voice stands in only when the account and this device allow it.
+  const browserVoice =
+    current.loaded && browserCanSpeak() && (!current.configured || (live && current.browserFallback));
   return {
     ...current,
     useGateway,
-    canSpeak: useGateway || (live && current.browserFallback && browserCanSpeak()),
+    canSpeak: useGateway || browserVoice,
     canListen: live && current.transcription && browserCanRecord(),
     away: live && current.configured && !current.speech,
   };

@@ -212,7 +212,9 @@ again later with another provider.
 
 The canvas keeps the learner's writing as a draft on the server and in the browser, so a reload
 loses nothing. Once a pen touches the canvas, fingers stop drawing and pan and zoom instead,
-which keeps a resting palm off the page. The page `/pen-check` shows live what a pen, a finger
+which keeps a resting palm off the page. A pen's eraser end, or its side (barrel) button held
+down, erases whole strokes, also when the button is pressed in the middle of a stroke. The
+page `/pen-check` shows live what a pen, a finger
 or a mouse reports (pressure, tilt, buttons and samples per second), and the readings can be
 copied as text. It is the quickest way to see whether a new device reports pressure.
 
@@ -237,6 +239,19 @@ equation to the next while new terms fade in, graphs are drawn with Mafs and fig
 and notes point at what they explain. When the check found a wrong line, the button "Watch the
 solution from your mistake" opens the player at the matching step, with the learner's line
 beside the correct one. Space plays or pauses, and the arrow keys move between steps.
+
+Holding a finger (or the mouse button) on the picture pauses the solution until it lifts; a
+small red dot with a pause sign appears in the top corner away from the finger. A button next
+to the speed switches between one step at a time and a scrolling list that keeps every step so
+far: the list follows the newest step until the learner scrolls up to review, and tapping a
+step plays the solution from there. The choice is kept in the browser.
+
+The microphone at the left end of the subtitles asks about the step on screen. Holding it
+pauses the solution and listens with the browser's own speech recognition (Chrome, Edge and
+Safari have it); letting go sends the question, with the problem and the steps so far, to the
+learner's AI provider for grading (`POST /api/math/solutions/:challengeId/ask`), and the answer
+appears under the subtitles and is read aloud. A short tap opens a text field instead. Nothing
+is stored, and only learners who may open the solution can ask.
 
 A course file carries the script of a problem in `payload.solutionScript`. Import and update
 store it in `math_solutions` as a new version, but only when it differs from the newest one,
@@ -448,8 +463,9 @@ make the connection. `VOICE_URL` and `VOICE_TOKEN` go into the secrets file next
 `LINGO_SECRET_KEY`. `VOICE_CA_FILE` names the gateway's root certificate, which is the only
 authority the app trusts for this connection. And the egress proxy allows the gateway as one
 address and one port in the commented block of `squid.conf`. The other voice settings in the
-table under "Running it" are optional. Without `VOICE_URL` and `VOICE_TOKEN` the app shows no
-voice controls beyond the browser's own voice.
+table under "Running it" are optional. Without `VOICE_URL` and `VOICE_TOKEN` the browser's own
+voice reads narration, hints and explanations aloud for everyone, with no setting to turn on;
+the speaker button in the player mutes it.
 
 Each account turns voice on, picks a voice and a speed on the settings page. The page also shows
 whether the gateway answers, plays a sample, and has a switch, kept on the device, that lets the

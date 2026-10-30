@@ -6,9 +6,9 @@
 // frame is computed from the script and the time; nothing runs on its own.
 import "katex/dist/katex.min.css";
 
-import { useMemo, useRef, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
-import { Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
+import { Film, ListOrdered, Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
 
 import { useNarration, type NarrationSource } from "@/components/voice/narration";
 import { VoiceNote } from "@/components/voice/voice-note";
@@ -18,8 +18,21 @@ import { cn } from "@/lib/utils";
 
 import { MathFormula } from "../math-text";
 
+import { AskStep } from "./ask-step";
 import { Stage } from "./stage";
+import { StepLog } from "./step-log";
 import { SPEEDS, usePlayback } from "./use-playback";
+
+type ViewMode = "steps" | "scroll";
+const VIEW_KEY = "lingo.solution.view";
+
+const readView = (): ViewMode => {
+  try {
+    return window.localStorage.getItem(VIEW_KEY) === "scroll" ? "scroll" : "steps";
+  } catch {
+    return "steps";
+  }
+};
 
 export type PlayerStart = {
   /** The step to open at. */
@@ -65,6 +78,55 @@ export const SolutionPlayer = ({ script, start, className, narration }: Solution
   });
   const trackRef = useRef<HTMLDivElement>(null);
   const dragging = useRef<{ resume: boolean } | null>(null);
+
+  // Two views: one step at a time on the stage, or a list that keeps every step so far and
+  // scrolls along. The choice is kept in this browser.
+  const [view, setView] = useState<ViewMode>("steps");
+  useEffect(() => {
+    const saved = readView();
+    const id = requestAnimationFrame(() => setView(saved));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  const switchView = () => {
+    const next = view === "steps" ? "scroll" : "steps";
+    setView(next);
+    try {
+      window.localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // The choice then lasts until the player closes.
+    }
+  };
+
+  // Hold to pause: a finger (or the mouse button) held on the picture pauses the solution until
+  // it lifts. A small red dot in the top corner away from the finger says so.
+  const [held, setHeld] = useState<"left" | "right" | null>(null);
+  const heldSince = useRef(0);
+  // A long hold on a step of the list must not also count as a tap that jumps to that step.
+  const longHold = useRef(false);
+  const holdStart = (event: PointerEvent<HTMLDivElement>) => {
+    longHold.current = false;
+    if (!playing || (event.pointerType === "mouse" && event.button !== 0)) return;
+    if ((event.target as HTMLElement).closest("button, a, input, textarea, select")) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    heldSince.current = performance.now();
+    setHeld(event.clientX - rect.left > rect.width / 2 ? "left" : "right");
+    playback.pause();
+  };
+  const holdEnd = () => {
+    if (!held) return;
+    longHold.current = performance.now() - heldSince.current > 350;
+    setHeld(null);
+    playback.play();
+  };
+  const seekToStep = (index: number) => {
+    if (longHold.current) {
+      longHold.current = false;
+      return;
+    }
+    playback.seek(timeline.steps[index]?.start ?? 0);
+  };
+
+  const ask = narration?.kind === "saved" ? narration : null;
 
   const correctLine = start?.learnerLine ? lineShownAt(timeline, startStep) : null;
 
@@ -120,22 +182,71 @@ export const SolutionPlayer = ({ script, start, className, narration }: Solution
         </div>
       )}
 
-      <Stage timeline={timeline} frame={frame} />
-
-      <div className="relative min-h-[2.75rem] rounded-xl bg-neutral-800 px-4 py-2 text-center text-sm text-white lg:text-base">
-        <p aria-live="polite" className={voice.available && voice.hasStepNarration ? "px-8" : undefined}>
-          {frame.narration ?? "\u00a0"}
-        </p>
-        {voice.available && voice.hasStepNarration && (
-          <button
-            type="button"
-            onClick={voice.hearStep}
-            aria-label="Hear this step"
-            title="Hear this step"
-            className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-white/80 hover:bg-white/15"
+      <div
+        className="relative select-none"
+        onPointerDown={holdStart}
+        onPointerUp={holdEnd}
+        onPointerCancel={holdEnd}
+        onPointerLeave={holdEnd}
+        onContextMenu={(event) => held && event.preventDefault()}
+      >
+        {view === "steps" ? (
+          <Stage timeline={timeline} frame={frame} />
+        ) : (
+          <StepLog
+            timeline={timeline}
+            step={frame.step}
+            onSeek={seekToStep}
+          />
+        )}
+        {held && (
+          <span
+            role="status"
+            aria-label="Paused while you hold"
+            className={cn(
+              "pointer-events-none absolute top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-rose-500 text-white shadow",
+              held === "left" ? "left-2" : "right-2"
+            )}
           >
-            <Volume2 className={cn("h-4 w-4", voice.phase === "loading" && "animate-pulse")} />
-          </button>
+            <Pause className="h-3.5 w-3.5" fill="currentColor" />
+          </span>
+        )}
+      </div>
+
+      <div className="relative space-y-2">
+        <div className="relative min-h-[2.75rem] rounded-xl bg-neutral-800 px-4 py-2 text-center text-sm text-white lg:text-base">
+          <p
+            aria-live="polite"
+            className={cn(
+              ask && "pl-8",
+              voice.available && voice.hasStepNarration && "pr-8",
+              ask && !(voice.available && voice.hasStepNarration) && "pr-8"
+            )}
+          >
+            {frame.narration ?? "\u00a0"}
+          </p>
+          {voice.available && voice.hasStepNarration && (
+            <button
+              type="button"
+              onClick={voice.hearStep}
+              aria-label="Hear this step"
+              title="Hear this step"
+              className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-white/80 hover:bg-white/15"
+            >
+              <Volume2 className={cn("h-4 w-4", voice.phase === "loading" && "animate-pulse")} />
+            </button>
+          )}
+        </div>
+        {ask && (
+          <AskStep
+            challengeId={ask.challengeId}
+            version={ask.version}
+            step={frame.step}
+            onAsk={() => {
+              voice.unlock();
+              playback.pause();
+            }}
+          />
         )}
       </div>
       {voice.away && <VoiceNote className="justify-end" />}
@@ -237,6 +348,16 @@ export const SolutionPlayer = ({ script, start, className, narration }: Solution
             {voice.on ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </button>
         )}
+        <button
+          type="button"
+          onClick={switchView}
+          aria-pressed={view === "scroll"}
+          aria-label={view === "steps" ? "Show the steps as a scrolling list" : "Show one step at a time"}
+          title={view === "steps" ? "Scrolling list of steps" : "One step at a time"}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-600 hover:bg-slate-100"
+        >
+          {view === "steps" ? <ListOrdered className="h-4 w-4" /> : <Film className="h-4 w-4" />}
+        </button>
         <label className="shrink-0">
           <span className="sr-only">Speed</span>
           <select

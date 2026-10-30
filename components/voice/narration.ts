@@ -57,6 +57,7 @@ export class NarrationController {
   private resumeStart: (() => void) | null = null;
   private watchdog: ReturnType<typeof setTimeout> | null = null;
   private browserSpeaking = false;
+  private speechUnlocked = false;
 
   constructor(private readonly options: ControllerOptions) {}
 
@@ -71,6 +72,11 @@ export class NarrationController {
   /** Call from a tap or click so the browser lets later clips start by themselves. */
   unlock() {
     this.audio ??= new Audio();
+    // iOS also wants the browser's own voice started from a tap once before a timer may use it.
+    if (!this.speechUnlocked && typeof window !== "undefined" && "speechSynthesis" in window) {
+      this.speechUnlocked = true;
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+    }
     if (this.live) return;
     this.audio.src = SILENCE;
     void this.audio.play().catch(() => undefined);
@@ -158,7 +164,7 @@ export class NarrationController {
     this.paused = false;
     const text = this.options.texts[index];
     const voice = voiceNow();
-    if (!text || !voice.enabled) return this.options.onPhase(index, "idle");
+    if (!text || !(voice.useGateway || voice.canSpeak)) return this.options.onPhase(index, "idle");
 
     if (voice.useGateway) {
       this.options.onPhase(index, "loading");
@@ -216,6 +222,10 @@ export class NarrationController {
     if (offset > 1) return this.finish(index, token); // the browser's voice cannot start mid-sentence
     const utterance = new SpeechSynthesisUtterance(speakable(text));
     utterance.rate = this.rate;
+    let started = false;
+    utterance.onstart = () => {
+      started = true;
+    };
     utterance.onend = utterance.onerror = () => this.finish(index, token);
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
@@ -223,6 +233,11 @@ export class NarrationController {
     this.live = true;
     this.options.onPhase(index, "playing");
     this.arm(Math.max(10, (text.length / 12 / this.rate) * 1.5 + 5) * 1000, token, index);
+    // A device without a usable voice never starts speaking: let the picture go on at once
+    // instead of holding every step until the watchdog gives up.
+    setTimeout(() => {
+      if (!started && !this.paused && token === this.token) this.finish(index, token);
+    }, 2500);
   }
 
   /** The animation paused. */

@@ -195,8 +195,11 @@ describe("NarrationController", () => {
     controller.dispose();
   });
 
-  it("does nothing when the account has voice turned off", async () => {
+  it("does nothing when the account has voice turned off on a server with a voice gateway", async () => {
+    // What the voice store derives then: no gateway for this account and no browser stand-in.
     voice.enabled = false;
+    voice.useGateway = false;
+    voice.canSpeak = false;
     const { controller, log } = make(["First."]);
     await controller.play(0, 0);
     expect(fetchMock).not.toHaveBeenCalled();
